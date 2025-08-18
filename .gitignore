@@ -1,0 +1,34 @@
+# Binaries for current platform
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*_test
+
+# Compiled binaries for other platforms (e.g., cross-compilation)
+bin/
+pkg/
+
+# Dependency directories (e.g., Go modules cache)
+vendor/
+
+# Editor/IDE specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store # macOS specific
+Thumbs.db # Windows specific
+
+# Log files
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# Build output
+output/
+build/
