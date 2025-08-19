@@ -1,7 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"github.com/ZaharBorisenko/Banking_App_Goland/api"
+)
 
 func main() {
-	fmt.Println("Starting!")
+	server := api.NewAPIServer(":8080")
+	server.Run()
 }

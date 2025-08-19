@@ -1,8 +1,12 @@
-package main
+package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/ZaharBorisenko/Banking_App_Goland/models"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"log"
 	"net/http"
 )
 
@@ -40,16 +44,30 @@ func NewAPIServer(listenAddr string) *APIServer {
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 	router.HandleFunc("/account", makeHTTPHandlerFunc(s.handleAccount))
+	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleGetAccount))
 
+	log.Println("Server running on port: ", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
 }
 
 func (s *APIServer) handleAccount(writer http.ResponseWriter, request *http.Request) error {
-	return nil
+	if request.Method == "GET" {
+		return s.handleGetAccount(writer, request)
+	}
+	if request.Method == "POST" {
+		return s.handleCreateAccount(writer, request)
+	}
+	if request.Method == "DELETE" {
+		return s.handleDeleteAccount(writer, request)
+	}
+
+	return fmt.Errorf("method not allowed %s", request.Method)
 }
 
 func (s *APIServer) handleGetAccount(writer http.ResponseWriter, request *http.Request) error {
-	return nil
+	id, _ := uuid.Parse(mux.Vars(request)["id"])
+	fmt.Println(id)
+	return WriteJSON(writer, http.StatusOK, &models.Account{})
 }
 
 func (s *APIServer) handleCreateAccount(writer http.ResponseWriter, request *http.Request) error {
