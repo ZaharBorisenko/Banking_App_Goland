@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ZaharBorisenko/Banking_App_Goland/dto"
 	"github.com/ZaharBorisenko/Banking_App_Goland/models"
+	"github.com/ZaharBorisenko/Banking_App_Goland/storage"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"log"
@@ -11,8 +13,8 @@ import (
 )
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
+	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(v)
 }
 
@@ -33,18 +35,20 @@ func makeHTTPHandlerFunc(f apiFunc) http.HandlerFunc {
 // APIServer ===================== APIServer =====================
 type APIServer struct {
 	listenAddr string
+	store      storage.Storage
 }
 
-func NewAPIServer(listenAddr string) *APIServer {
+func NewAPIServer(listenAddr string, store storage.Storage) *APIServer {
 	return &APIServer{
 		listenAddr: listenAddr,
+		store:      store,
 	}
 }
 
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 	router.HandleFunc("/account", makeHTTPHandlerFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleGetAccount))
+	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleGetAccountByID))
 
 	log.Println("Server running on port: ", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
@@ -65,13 +69,31 @@ func (s *APIServer) handleAccount(writer http.ResponseWriter, request *http.Requ
 }
 
 func (s *APIServer) handleGetAccount(writer http.ResponseWriter, request *http.Request) error {
+	accounts, err := s.store.GetAccounts()
+	if err != nil {
+		return err
+	}
+	return WriteJSON(writer, http.StatusOK, accounts)
+}
+
+func (s *APIServer) handleGetAccountByID(writer http.ResponseWriter, request *http.Request) error {
 	id, _ := uuid.Parse(mux.Vars(request)["id"])
 	fmt.Println(id)
 	return WriteJSON(writer, http.StatusOK, &models.Account{})
 }
 
 func (s *APIServer) handleCreateAccount(writer http.ResponseWriter, request *http.Request) error {
-	return nil
+	createAccount := dto.CreateAccountRequest{}
+	if err := json.NewDecoder(request.Body).Decode(&createAccount); err != nil {
+		return err
+	}
+
+	account := dto.NewAccount(createAccount.FirstName, createAccount.LastName)
+	if err := s.store.CreateAccount(account); err != nil {
+		return err
+	}
+
+	return WriteJSON(writer, http.StatusCreated, &account)
 }
 func (s *APIServer) handleDeleteAccount(writer http.ResponseWriter, request *http.Request) error {
 	return nil

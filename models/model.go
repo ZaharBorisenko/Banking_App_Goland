@@ -2,7 +2,7 @@ package models
 
 import (
 	"github.com/google/uuid"
-	"math/rand"
+	"time"
 )
 
 type Account struct {
@@ -11,14 +11,5 @@ type Account struct {
 	LastName  string    `json:"lastName"`
 	Number    int64     `json:"number"`
 	Balance   int64     `json:"balance"`
-}
-
-func NewAccount(firstName string, lastName string) *Account {
-	return &Account{
-		ID:        uuid.New(),
-		FirstName: firstName,
-		LastName:  lastName,
-		Number:    int64(rand.Intn(10000000)),
-		Balance:   0,
-	}
+	CreatedAt time.Time `json:"createdAt"`
 }
