@@ -4,16 +4,17 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/ZaharBorisenko/Banking_App_Goland/models"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 	"log"
 )
 
 type Storage interface {
 	CreateAccount(account *models.Account) error
-	DeleteAccount(int) error
+	DeleteAccount(uuid.UUID) error
 	UpdateAccount(account *models.Account) error
 	GetAccounts() ([]*models.Account, error)
-	GetAccountById(int) (*models.Account, error)
+	GetAccountById(uuid.UUID) (*models.Account, error)
 }
 
 type PostgresStore struct {
@@ -63,6 +64,55 @@ func (s *PostgresStore) CreateAccountTable() error {
 	return nil
 }
 
+func (s *PostgresStore) GetAccounts() ([]*models.Account, error) {
+	var accounts []*models.Account
+	rows, err := s.db.Query(`SELECT * FROM account`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select accounts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		account := &models.Account{}
+		if err := rows.Scan(
+			&account.ID,
+			&account.FirstName,
+			&account.LastName,
+			&account.Number,
+			&account.Balance,
+			&account.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	log.Printf("Found %d accounts", len(accounts))
+	return accounts, nil
+}
+
+func (s *PostgresStore) GetAccountById(id uuid.UUID) (*models.Account, error) {
+	var account = &models.Account{}
+	row := s.db.QueryRow(`SELECT * FROM account where id = $1`, id)
+
+	if err := row.Scan(
+		&account.ID,
+		&account.FirstName,
+		&account.LastName,
+		&account.Number,
+		&account.Balance,
+		&account.CreatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("failde to scan account %w", err)
+	}
+
+	return account, nil
+}
+
 func (s *PostgresStore) CreateAccount(account *models.Account) error {
 	query := `INSERT INTO 
    	account
@@ -84,39 +134,11 @@ func (s *PostgresStore) UpdateAccount(account *models.Account) error {
 	return nil
 }
 
-func (s *PostgresStore) DeleteAccount(id int) error {
-	return nil
-}
-func (s *PostgresStore) GetAccountById(id int) (*models.Account, error) {
-	return nil, nil
-}
-
-func (s *PostgresStore) GetAccounts() ([]*models.Account, error) {
-	var accounts []*models.Account
-	rows, err := s.db.Query(`SELECT * FROM account`)
+func (s *PostgresStore) DeleteAccount(id uuid.UUID) error {
+	_, err := s.db.Exec("DELETE from account where id = $1", id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to select accounts: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		account := &models.Account{}
-		if err := rows.Scan(
-			&account.ID,
-			&account.FirstName,
-			&account.LastName,
-			&account.Number,
-			&account.Balance,
-			&account.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan account: %w", err)
-		}
-		accounts = append(accounts, account)
+		return fmt.Errorf("deletion is not completed %w", err)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	log.Printf("Found %d accounts", len(accounts))
-	return accounts, nil
+	return nil
 }
