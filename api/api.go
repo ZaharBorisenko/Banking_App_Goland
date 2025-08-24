@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/ZaharBorisenko/Banking_App_Goland/dto"
+	"github.com/ZaharBorisenko/Banking_App_Goland/models"
 	"github.com/ZaharBorisenko/Banking_App_Goland/storage"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -54,6 +56,7 @@ func (s *APIServer) Run() {
 
 	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleGetAccountByID)).Methods(http.MethodGet)
 	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleDeleteAccount)).Methods(http.MethodDelete)
+	router.HandleFunc("/account/{id}", makeHTTPHandlerFunc(s.handleUpdateAccount)).Methods(http.MethodPut)
 
 	log.Println("Server running on port: ", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
@@ -62,17 +65,20 @@ func (s *APIServer) Run() {
 func (s *APIServer) handleGetAccount(writer http.ResponseWriter, request *http.Request) error {
 	accounts, err := s.store.GetAccounts()
 	if err != nil {
-		return err
+		return fmt.Errorf("get accounts: %w", err)
 	}
 	return WriteJSON(writer, http.StatusOK, accounts)
 }
 
 func (s *APIServer) handleGetAccountByID(writer http.ResponseWriter, request *http.Request) error {
-	id, _ := uuid.Parse(mux.Vars(request)["id"])
+	id, err := uuid.Parse(mux.Vars(request)["id"])
+	if err != nil {
+		return fmt.Errorf("invalid uuid %s: %w", id, err)
+	}
 	account, err := s.store.GetAccountById(id)
 
 	if err != nil {
-		return err
+		return fmt.Errorf("get account: %w: %v", err, id)
 	}
 
 	return WriteJSON(writer, http.StatusOK, account)
@@ -81,7 +87,7 @@ func (s *APIServer) handleGetAccountByID(writer http.ResponseWriter, request *ht
 func (s *APIServer) handleCreateAccount(writer http.ResponseWriter, request *http.Request) error {
 	createAccount := dto.CreateAccountRequest{}
 	if err := json.NewDecoder(request.Body).Decode(&createAccount); err != nil {
-		return err
+		return WriteJSON(writer, http.StatusBadRequest, ApiError{Error: "Invalid JSON"})
 	}
 
 	account := dto.NewAccount(createAccount.FirstName, createAccount.LastName)
@@ -91,6 +97,28 @@ func (s *APIServer) handleCreateAccount(writer http.ResponseWriter, request *htt
 
 	return WriteJSON(writer, http.StatusCreated, &account)
 }
+
+func (s *APIServer) handleUpdateAccount(writer http.ResponseWriter, request *http.Request) error {
+	id, err := uuid.Parse(mux.Vars(request)["id"])
+
+	if err != nil {
+		return fmt.Errorf("invalid uuid %s: %w", id, err)
+	}
+
+	updateAccount := models.Account{}
+	if err := json.NewDecoder(request.Body).Decode(&updateAccount); err != nil {
+		return WriteJSON(writer, http.StatusBadRequest, ApiError{Error: "Invalid JSON"})
+	}
+
+	updateAccount.ID = id
+	if err := s.store.UpdateAccount(&updateAccount); err != nil {
+		WriteJSON(writer, http.StatusInternalServerError, ApiError{Error: err.Error()})
+	}
+
+	return WriteJSON(writer, http.StatusOK, updateAccount)
+
+}
+
 func (s *APIServer) handleDeleteAccount(writer http.ResponseWriter, request *http.Request) error {
 	id, _ := uuid.Parse(mux.Vars(request)["id"])
 	err := s.store.DeleteAccount(id)

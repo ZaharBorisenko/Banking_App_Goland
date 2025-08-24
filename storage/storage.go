@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/ZaharBorisenko/Banking_App_Goland/models"
 	"github.com/google/uuid"
@@ -21,28 +22,39 @@ type PostgresStore struct {
 	db *sql.DB
 }
 
+var (
+	ErrAccountNotFound     = errors.New("account not found")
+	ErrDataNotFound        = errors.New("data rows not found")
+	ErrDatabase            = errors.New("database error")
+	ErrCreateDatabaseTable = errors.New("error creating table")
+	ErrConnectDatabase     = errors.New("error connecting database")
+)
+
 func NewPostgresStore() (*PostgresStore, error) {
 	connStr := "user=postgres dbname=Bank password=admin sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrConnectDatabase, err)
 	}
 	if err := db.Ping(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrConnectDatabase, err)
 	}
-	log.Println("Connected to PostgreSQL database")
+	log.Printf("Connected to PostgresSQL database")
 	return &PostgresStore{db: db}, nil
 }
 
 func (s *PostgresStore) Init() error {
 	if err := s.enableUUIDExtension(); err != nil {
-		return err
+		return fmt.Errorf("UUID extension disabled %w", err)
 	}
 	return s.CreateAccountTable()
 }
 func (s *PostgresStore) enableUUIDExtension() error {
 	_, err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"")
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to enable pgcrypto extension: %w", err)
+	}
+	return nil
 }
 
 func (s *PostgresStore) CreateAccountTable() error {
@@ -52,23 +64,24 @@ func (s *PostgresStore) CreateAccountTable() error {
     last_name VARCHAR(50),
     number serial,
     balance int,
-    created_at timestamp
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 )`
 
 	_, err := s.db.Exec(query)
 	if err != nil {
-		fmt.Errorf("failed to create account table %w", err)
+		return fmt.Errorf("%w: %v", ErrCreateDatabaseTable, err)
 	}
-	log.Println("Account table created or already exists")
+	log.Printf("Account table created or already exists")
 
 	return nil
 }
 
 func (s *PostgresStore) GetAccounts() ([]*models.Account, error) {
 	var accounts []*models.Account
-	rows, err := s.db.Query(`SELECT * FROM account`)
+	rows, err := s.db.Query(`SELECT id, first_name, last_name, number, balance, created_at, updated_at FROM account`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to select accounts: %w", err)
+		return nil, fmt.Errorf("get accounts: %w", err)
 	}
 	defer rows.Close()
 
@@ -81,33 +94,40 @@ func (s *PostgresStore) GetAccounts() ([]*models.Account, error) {
 			&account.Number,
 			&account.Balance,
 			&account.CreatedAt,
+			&account.UpdatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan account: %w", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("%w : %v", ErrDataNotFound, err)
+			}
+			log.Printf("databasee error in GetAccounts %s", err)
+			return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
+
 		}
 		accounts = append(accounts, account)
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
 	log.Printf("Found %d accounts", len(accounts))
 	return accounts, nil
 }
 
 func (s *PostgresStore) GetAccountById(id uuid.UUID) (*models.Account, error) {
 	var account = &models.Account{}
-	row := s.db.QueryRow(`SELECT * FROM account where id = $1`, id)
+	row := s.db.QueryRow(`SELECT id, first_name, last_name, number, balance, created_at, updated_at FROM account where id = $1`, id)
 
-	if err := row.Scan(
+	err := row.Scan(
 		&account.ID,
 		&account.FirstName,
 		&account.LastName,
 		&account.Number,
 		&account.Balance,
 		&account.CreatedAt,
-	); err != nil {
-		return nil, fmt.Errorf("failde to scan account %w", err)
+		&account.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w : %v", ErrAccountNotFound, id)
+		}
+		log.Printf("databasee error in GetAccountById(%s): %v\n", id, err)
+		return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
 	}
 
 	return account, nil
@@ -116,14 +136,19 @@ func (s *PostgresStore) GetAccountById(id uuid.UUID) (*models.Account, error) {
 func (s *PostgresStore) CreateAccount(account *models.Account) error {
 	query := `INSERT INTO 
    	account
-    	(first_name,last_name, number, balance, created_at) 
+    	(first_name,last_name, number, balance) 
 	VALUES 
-		($1,$2,$3,$4,$5)`
+		($1,$2,$3,$4)`
 
-	_, err := s.db.Exec(query, account.FirstName, account.LastName, account.Number, account.Balance, account.CreatedAt)
+	_, err := s.db.Exec(query,
+		account.FirstName,
+		account.LastName,
+		account.Number,
+		account.Balance,
+	)
 
 	if err != nil {
-		fmt.Errorf("failed to create account %w", err)
+		return fmt.Errorf("failed to create account %w", err)
 	}
 
 	log.Println("Account created %w")
@@ -131,7 +156,38 @@ func (s *PostgresStore) CreateAccount(account *models.Account) error {
 }
 
 func (s *PostgresStore) UpdateAccount(account *models.Account) error {
+	query := `UPDATE account 
+			  SET 
+				first_name = $1, 
+          		last_name = $2, 
+          		number = $3, 
+          		balance = $4, 
+       		  WHERE id = $5 
+			  RETURNING id`
+
+	result, err := s.db.Exec(
+		query,
+		account.FirstName,
+		account.LastName,
+		account.Number,
+		account.Balance,
+		account.ID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update account: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("%w: %v", ErrAccountNotFound, account.ID)
+	}
+
 	return nil
+
 }
 
 func (s *PostgresStore) DeleteAccount(id uuid.UUID) error {
